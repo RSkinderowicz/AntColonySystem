@@ -44,7 +44,7 @@ double get_random_double(double from = 0.0, uint32_t to_exclusive = 1.0) {
 
 
 struct Ant {
-    vector<uint32_t> visited_;
+    vector<uint32_t> visited_;  // A list of visited nodes, i.e. a route
     vector<uint8_t> is_visited_;
 
     void initialize(uint32_t dimension) {
@@ -448,8 +448,10 @@ Ant run_acs(const ProblemInstance &instance,
  * format from file at 'path'. Only the instances with 'EDGE_WEIGHT_TYPE:
  * EUC_2D' or 'EXPLICIT' are supported.
  *
- * Returns a pair (problem dimension, matrix with distances between nodes).
- * The matrix is stored in 1D array.
+ * Throws runtime_error if the file is in unsupported format or if an error was
+ * encountered.
+ *
+ * Returns the loaded problem instance.
  */
 ProblemInstance load_tsplib_instance(const char *path) {
     enum EdgeWeightType {
