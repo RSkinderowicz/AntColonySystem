@@ -8,6 +8,10 @@
  *
  * It is intended mainly for educational puroposes and may not offer the best
  * possible performance.
+ *
+ * Licensed under terms of MIT license (see LICENSE)
+ *
+ * Copyright (c) 2018 Rafał Skinderowicz, rafal.skinderowicz@us.edu.pl
  */
 #include <iostream>
 #include <vector>
