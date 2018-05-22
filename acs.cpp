@@ -47,6 +47,192 @@ double get_random_double(double from = 0.0, uint32_t to_exclusive = 1.0) {
 }
 
 
+struct ProblemInstance {
+    uint32_t dimension_;
+    bool is_symmetric_ = true;
+    vector<double> distance_matrix_;
+    vector<vector<uint32_t>> nearest_neighbor_lists_;
+
+
+    ProblemInstance(uint32_t dimension,
+                    const vector<double> &distance_matrix,
+                    bool is_symmetric) :
+        dimension_(dimension),
+        is_symmetric_(is_symmetric),
+        distance_matrix_(distance_matrix) {
+
+        assert(dimension >= 2);
+    }
+
+
+    void initialize_nn_lists(uint32_t nn_list_size) {
+        assert(dimension_ > 1);
+
+        nn_list_size = min(dimension_ - 1, nn_list_size);
+
+        nearest_neighbor_lists_.resize(dimension_);
+        vector<uint32_t> neighbors(dimension_);
+        for (uint32_t i = 0; i < dimension_; ++i) {
+            neighbors[i] = i;
+        }
+
+        for (uint32_t node = 0; node < dimension_; ++node) {
+            sort(neighbors.begin(), neighbors.end(),
+                 [this, node] (uint32_t a, uint32_t b) {
+                    return get_distance(node, a) < get_distance(node, b);
+                 });
+            assert( get_distance(node, neighbors.at(0))
+                    <= get_distance(node, neighbors.at(1)) );
+
+            auto &nn_list = nearest_neighbor_lists_.at(node);
+            nn_list.clear();
+            nn_list.reserve(nn_list_size);
+            for (uint32_t i = 0; i < nn_list_size; ++i) {
+                nn_list.push_back(neighbors[i]);
+            }
+        }
+    }
+
+
+    double get_distance(uint32_t from, uint32_t to) const {
+        assert( (from < dimension_) && (to < dimension_) );
+
+        return distance_matrix_[from * dimension_ + to];
+    }
+
+    const vector<uint32_t>& get_nearest_neighbors(uint32_t node) const {
+        assert( node < nearest_neighbor_lists_.size() );
+
+        return nearest_neighbor_lists_[node];
+    }
+
+
+    double calculate_route_length(const vector<uint32_t> &route) const {
+        double distance = 0;
+        if ( !route.empty() ) {
+            auto prev_node = route.back();
+            for (auto node : route) {
+                distance += get_distance(prev_node, node);
+                prev_node = node;
+            }
+        }
+        return distance;
+    }
+};
+
+
+/**
+ * Tries to load a Traveling Salesman Problem (or ATSP) instance in TSPLIB
+ * format from file at 'path'. Only the instances with 'EDGE_WEIGHT_TYPE:
+ * EUC_2D' or 'EXPLICIT' are supported.
+ *
+ * Throws runtime_error if the file is in unsupported format or if an error was
+ * encountered.
+ *
+ * Returns the loaded problem instance.
+ */
+ProblemInstance load_tsplib_instance(const char *path) {
+    enum EdgeWeightType {
+        EUC_2D, EXPLICIT
+    };
+
+    ifstream in(path);
+
+    if (!in.is_open()) {
+        throw runtime_error(string("Cannot open TSP instance file: ") + path);
+    }
+
+    string line;
+
+    uint32_t dimension = 0;
+    vector<double> distances;
+    EdgeWeightType edge_weight_type { EUC_2D };
+    bool is_symmetric = true;
+
+    while (getline(in, line)) {
+        cout << "Read line: " << line << endl;
+        if (line.find("TYPE") == 0) {
+            if (line.find(" TSP") != string::npos) {
+                is_symmetric = true;
+            } else if (line.find(" ATSP") != string::npos) {
+                is_symmetric = false;
+            } else {
+                throw runtime_error("Unknown problem type");
+            }
+        } else if (line.find("DIMENSION") != string::npos) {
+            istringstream line_in(line.substr(line.find(':') + 1));
+            if ( !(line_in >> dimension) ) {
+                throw runtime_error(string("Cannot read instance dimension"));
+            }
+        } else if (line.find("EDGE_WEIGHT_TYPE") != string::npos) {
+            if (line.find(" EUC_2D") != string::npos) {
+                edge_weight_type = EUC_2D;
+            } else if (line.find(" EXPLICIT") != string::npos) {
+                edge_weight_type = EXPLICIT;
+            } else {
+                throw runtime_error(string("Unsupported edge weight type"));
+            }
+        } else if (line.find("NODE_COORD_SECTION") != string::npos) {
+            vector<pair<double, double>> coords;
+
+            while (getline(in, line)) {
+                if (line.find("EOF") == string::npos) {
+                    istringstream line_in(line);
+                    uint32_t id;
+                    pair<double, double> point;
+                    line_in >> id >> point.first >> point.second;
+                    if (line_in.bad()) {
+                        cerr << "Error while reading coordinates";
+                    }
+                    coords.push_back(point);
+                } else {
+                    break ;
+                }
+            }
+
+            distances.resize(dimension * dimension, 0);
+
+            for (uint32_t i = 0; i < dimension; ++i) {
+                auto from = coords.at(i);
+
+                for (uint32_t j = 0; j < dimension; ++j) {
+                    if (i != j) {
+                        auto to = coords.at(j);
+                        auto dx = to.first - from.first;
+                        auto dy = to.second - from.second;
+                        double distance = int(sqrt(dx*dx + dy*dy) + 0.5);
+                        distances.at(i * dimension + j) = distance;
+                    }
+                }
+            }
+        } else if (line.find("EDGE_WEIGHT_SECTION") != string::npos) {
+            assert(dimension > 0);
+            if (edge_weight_type != EXPLICIT) {
+                throw runtime_error("Expected EXPLICIT edge weight type");
+            }
+
+            distances.reserve(dimension * dimension);
+            while (getline(in, line)) {
+                if (line.find("EOF") != string::npos) {
+                    break ;
+                }
+                istringstream line_in(line);
+                double distance;
+                while (line_in >> distance) {
+                    distances.push_back(distance);
+                }
+            }
+            assert( distances.size() == dimension * dimension );
+        }
+    }
+    in.close();
+
+    assert(dimension > 2);
+
+    return ProblemInstance(dimension, distances, is_symmetric);
+}
+
+
 struct Ant {
     vector<uint32_t> visited_;  // A list of visited nodes, i.e. a route
     vector<uint8_t> is_visited_;
@@ -115,66 +301,6 @@ struct PheromoneMemory {
     }
 };
 
-
-struct ProblemInstance {
-    uint32_t dimension_;
-    bool is_symmetric_ = true;
-    vector<double> distance_matrix_;
-    vector<vector<uint32_t>> nearest_neighbor_lists_;
-
-
-    ProblemInstance(uint32_t dimension,
-                    const vector<double> &distance_matrix,
-                    bool is_symmetric) :
-        dimension_(dimension),
-        is_symmetric_(is_symmetric),
-        distance_matrix_(distance_matrix) {
-
-        assert(dimension >= 2);
-    }
-
-
-    void initialize_nn_lists(uint32_t nn_list_size) {
-        assert(dimension_ > 1);
-
-        nn_list_size = min(dimension_ - 1, nn_list_size);
-
-        nearest_neighbor_lists_.resize(dimension_);
-        vector<uint32_t> neighbors(dimension_);
-        for (uint32_t i = 0; i < dimension_; ++i) {
-            neighbors[i] = i;
-        }
-
-        for (uint32_t node = 0; node < dimension_; ++node) {
-            sort(neighbors.begin(), neighbors.end(),
-                 [this, node] (uint32_t a, uint32_t b) {
-                    return get_distance(node, a) < get_distance(node, b);
-                 });
-            assert( get_distance(node, neighbors.at(0))
-                    <= get_distance(node, neighbors.at(1)) );
-
-            auto &nn_list = nearest_neighbor_lists_.at(node);
-            nn_list.clear();
-            nn_list.reserve(nn_list_size);
-            for (uint32_t i = 0; i < nn_list_size; ++i) {
-                nn_list.push_back(neighbors[i]);
-            }
-        }
-    }
-
-
-    double get_distance(uint32_t from, uint32_t to) const {
-        assert( (from < dimension_) && (to < dimension_) );
-
-        return distance_matrix_[from * dimension_ + to];
-    }
-
-    const vector<uint32_t>& get_nearest_neighbors(uint32_t node) const {
-        assert( node < nearest_neighbor_lists_.size() );
-
-        return nearest_neighbor_lists_[node];
-    }
-};
 
 /**
  * This are based on the article mentioned.
@@ -337,26 +463,9 @@ Ant create_solution_nn(const ProblemInstance &instance, uint32_t start_node = 0)
 }
 
 
-double get_route_distance(const ProblemInstance &instance,
-                          const vector<uint32_t> &route) {
-    double distance = 0;
-
-    if ( !route.empty() ) {
-        auto prev_node = route.back();
-
-        for (auto node : route) {
-            distance += instance.get_distance(prev_node, node);
-            prev_node = node;
-        }
-    }
-
-    return distance;
-}
-
-
 double calc_initial_pheromone_value(const ProblemInstance &instance) {
     const auto ant = create_solution_nn(instance);
-    const auto cost = get_route_distance(instance, ant.visited_);
+    const auto cost = instance.calculate_route_length(ant.visited_);
     return 1. / (cost * instance.dimension_);
 }
 
@@ -415,7 +524,7 @@ Ant run_acs(const ProblemInstance &instance,
         }
         // Have we found an improved solution?
         for (const auto &ant : ants) {
-            const auto cost = get_route_distance(instance, ant.visited_);
+            const auto cost = instance.calculate_route_length(ant.visited_);
             if (cost < best_cost) {
                 best_cost = cost;
                 best_ant = ant;
@@ -437,118 +546,6 @@ Ant run_acs(const ProblemInstance &instance,
         }
     }
     return best_ant;
-}
-
-
-/**
- * Tries to load a Traveling Salesman Problem (or ATSP) instance in TSPLIB
- * format from file at 'path'. Only the instances with 'EDGE_WEIGHT_TYPE:
- * EUC_2D' or 'EXPLICIT' are supported.
- *
- * Throws runtime_error if the file is in unsupported format or if an error was
- * encountered.
- *
- * Returns the loaded problem instance.
- */
-ProblemInstance load_tsplib_instance(const char *path) {
-    enum EdgeWeightType {
-        EUC_2D, EXPLICIT
-    };
-
-    ifstream in(path);
-
-    if (!in.is_open()) {
-        throw runtime_error(string("Cannot open TSP instance file: ") + path);
-    }
-
-    string line;
-
-    uint32_t dimension = 0;
-    vector<double> distances;
-    EdgeWeightType edge_weight_type { EUC_2D };
-    bool is_symmetric = true;
-
-    while (getline(in, line)) {
-        cout << "Read line: " << line << endl;
-        if (line.find("TYPE") == 0) {
-            if (line.find(" TSP") != string::npos) {
-                is_symmetric = true;
-            } else if (line.find(" ATSP") != string::npos) {
-                is_symmetric = false;
-            } else {
-                throw runtime_error("Unknown problem type");
-            }
-        } else if (line.find("DIMENSION") != string::npos) {
-            istringstream line_in(line.substr(line.find(':') + 1));
-            if ( !(line_in >> dimension) ) {
-                throw runtime_error(string("Cannot read instance dimension"));
-            }
-        } else if (line.find("EDGE_WEIGHT_TYPE") != string::npos) {
-            if (line.find(" EUC_2D") != string::npos) {
-                edge_weight_type = EUC_2D;
-            } else if (line.find(" EXPLICIT") != string::npos) {
-                edge_weight_type = EXPLICIT;
-            } else {
-                throw runtime_error(string("Unsupported edge weight type"));
-            }
-        } else if (line.find("NODE_COORD_SECTION") != string::npos) {
-            vector<pair<double, double>> coords;
-
-            while (getline(in, line)) {
-                if (line.find("EOF") == string::npos) {
-                    istringstream line_in(line);
-                    uint32_t id;
-                    pair<double, double> point;
-                    line_in >> id >> point.first >> point.second;
-                    if (line_in.bad()) {
-                        cerr << "Error while reading coordinates";
-                    }
-                    coords.push_back(point);
-                } else {
-                    break ;
-                }
-            }
-
-            distances.resize(dimension * dimension, 0);
-
-            for (uint32_t i = 0; i < dimension; ++i) {
-                auto from = coords.at(i);
-
-                for (uint32_t j = 0; j < dimension; ++j) {
-                    if (i != j) {
-                        auto to = coords.at(j);
-                        auto dx = to.first - from.first;
-                        auto dy = to.second - from.second;
-                        double distance = int(sqrt(dx*dx + dy*dy) + 0.5);
-                        distances.at(i * dimension + j) = distance;
-                    }
-                }
-            }
-        } else if (line.find("EDGE_WEIGHT_SECTION") != string::npos) {
-            assert(dimension > 0);
-            if (edge_weight_type != EXPLICIT) {
-                throw runtime_error("Expected EXPLICIT edge weight type");
-            }
-
-            distances.reserve(dimension * dimension);
-            while (getline(in, line)) {
-                if (line.find("EOF") != string::npos) {
-                    break ;
-                }
-                istringstream line_in(line);
-                double distance;
-                while (line_in >> distance) {
-                    distances.push_back(distance);
-                }
-            }
-            assert( distances.size() == dimension * dimension );
-        }
-    }
-    in.close();
-
-    assert(dimension > 2);
-
-    return ProblemInstance(dimension, distances, is_symmetric);
 }
 
 
