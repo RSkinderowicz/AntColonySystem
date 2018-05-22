@@ -99,25 +99,18 @@ struct PheromoneMemory {
     }
 
 
-    void evaporate(uint32_t from, uint32_t to, double rate, bool is_symmetric) {
+    void update(uint32_t from, uint32_t to,
+                double evaporation_rate,
+                double deposit,
+                bool is_symmetric) {
+
         assert( (from < dimension_) && (to < dimension_) );
 
         auto &value = pheromone_values_[from * dimension_ + to];
-        value = max(min_pheromone_value_, value * (1 - rate));
+        value = value * (1 - evaporation_rate) + evaporation_rate * deposit;
 
         if (is_symmetric) {
             pheromone_values_[to * dimension_ + from] = value;
-        }
-    }
-
-
-    void deposit(uint32_t from, uint32_t to, double amount, bool is_symmetric) {
-        assert( (from < dimension_) && (to < dimension_) );
-
-        pheromone_values_[from * dimension_ + to] += amount;
-
-        if (is_symmetric) {
-            pheromone_values_[to * dimension_ + from] += amount;
         }
     }
 };
@@ -401,10 +394,11 @@ Ant run_acs(const ProblemInstance &instance,
                 const auto from_node = ant.visited_.back();
                 const auto to_node = move_ant(instance, pheromone,
                                               heuristic, ant, params.q0_);
-                pheromone.evaporate(from_node,
-                                    to_node,
-                                    params.local_evaporation_rate_,
-                                    instance.is_symmetric_);
+                pheromone.update(from_node,
+                                 to_node,
+                                 params.local_evaporation_rate_,
+                                 initial_pheromone,
+                                 instance.is_symmetric_);
             }
         }
         // Local evaporation on the route's closing edge
@@ -414,9 +408,10 @@ Ant run_acs(const ProblemInstance &instance,
             uint32_t from_node = ant.visited_.back();
             uint32_t to_node = ant.visited_.front();
 
-            pheromone.evaporate(from_node, to_node,
-                                params.local_evaporation_rate_,
-                                instance.is_symmetric_);
+            pheromone.update(from_node, to_node,
+                             params.local_evaporation_rate_,
+                             initial_pheromone,
+                             instance.is_symmetric_);
         }
         // Have we found an improved solution?
         for (const auto &ant : ants) {
@@ -433,13 +428,11 @@ Ant run_acs(const ProblemInstance &instance,
         auto prev_node = best_ant.visited_.back();
         const double deposit = 1.0 / best_cost;
         for (auto node : best_ant.visited_) {
-            // 'Global' evaporation
-            pheromone.evaporate(prev_node, node,
-                                params.global_evaportaion_rate_,
-                                instance.is_symmetric_);
-            // ... and deposition
-            pheromone.deposit(prev_node, node, deposit,
-                              instance.is_symmetric_);
+            // The global update of the pheromone trails
+            pheromone.update(prev_node, node,
+                             params.global_evaportaion_rate_,
+                             deposit,
+                             instance.is_symmetric_);
             prev_node = node;
         }
     }
