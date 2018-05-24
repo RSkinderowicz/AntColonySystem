@@ -87,8 +87,12 @@ struct ProblemInstance {
             auto &nn_list = nearest_neighbor_lists_.at(node);
             nn_list.clear();
             nn_list.reserve(nn_list_size);
-            for (uint32_t i = 0; i < nn_list_size; ++i) {
-                nn_list.push_back(neighbors[i]);
+            uint32_t count = 0;
+            for (uint32_t i = 0; count < nn_list_size ; ++i) {
+                if (neighbors[i] != node) {  // node is not its own neighbor
+                    nn_list.push_back(neighbors[i]);
+                    ++count;
+                }
             }
         }
     }
@@ -236,6 +240,8 @@ ProblemInstance load_tsplib_instance(const char *path) {
 struct Ant {
     vector<uint32_t> visited_;  // A list of visited nodes, i.e. a route
     vector<uint8_t> is_visited_;
+    double cost_ = std::numeric_limits<double>::max();
+
 
     void initialize(uint32_t dimension) {
         visited_.clear();
@@ -244,6 +250,7 @@ struct Ant {
         is_visited_.resize(dimension, false);
     }
 
+
     void visit(uint32_t node) {
         assert( !is_visited_.at(node) );
 
@@ -251,11 +258,13 @@ struct Ant {
         is_visited_.at(node) = true;
     }
 
+
     bool is_visited(uint32_t node) const {
         assert(node < is_visited_.size());
 
         return is_visited_[node];
     }
+
 
     bool all_visited() const {
         return find(is_visited_.begin(),
@@ -489,7 +498,6 @@ Ant run_acs(const ProblemInstance &instance,
 
     vector<Ant> ants(params.ants_count_);
     Ant best_ant;
-    double best_cost = numeric_limits<double>::max();
 
     for (uint32_t iteration = 0; iteration < iterations; ++iteration) {
         for (auto &ant : ants) {
@@ -523,19 +531,19 @@ Ant run_acs(const ProblemInstance &instance,
                              instance.is_symmetric_);
         }
         // Have we found an improved solution?
-        for (const auto &ant : ants) {
-            const auto cost = instance.calculate_route_length(ant.visited_);
-            if (cost < best_cost) {
-                best_cost = cost;
+        for (auto &ant : ants) {
+            ant.cost_ = instance.calculate_route_length(ant.visited_);
+            if (ant.cost_ < best_ant.cost_) {
                 best_ant = ant;
 
-                cout << "New best solution found with cost: " << cost 
+                cout << "New best solution found with the cost: "
+                     << best_ant.cost_
                      << " at iteration " << iteration << endl;
             }
         }
         // Deposit pheromone on the edges belonging to the best ant's solution
         auto prev_node = best_ant.visited_.back();
-        const double deposit = 1.0 / best_cost;
+        const double deposit = 1.0 / best_ant.cost_;
         for (auto node : best_ant.visited_) {
             // The global update of the pheromone trails
             pheromone.update(prev_node, node,
