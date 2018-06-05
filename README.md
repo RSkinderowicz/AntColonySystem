@@ -47,6 +47,9 @@ Example output:
     New best solution found with cost: 21368 at iteration 58240
     New best solution found with cost: 21282 at iteration 58241
 
+## Alternative implementation in C#
 
+For those who prefer C#:
+https://github.com/mbalchanowski/Ant-Colony-System
 
 [TSPLIB]: <http://comopt.ifi.uni-heidelberg.de/software/TSPLIB95/>
