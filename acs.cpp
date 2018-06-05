@@ -345,13 +345,12 @@ uint32_t move_ant(const ProblemInstance &instance,
     uint32_t cand_list[MaxCandListSize];
     uint32_t cand_list_size = 0;
     double candidates_pheromone[MaxCandListSize];
-    for (auto node : instance.get_nearest_neighbors(current_node)) {
-        if (!ant.is_visited(node)) {
-            cand_list[ cand_list_size ] = node;
-            const auto trail = pheromone.get(current_node, node);
-            candidates_pheromone[ cand_list_size ] = trail;
-            ++cand_list_size;
-        }
+    for (const auto node : instance.get_nearest_neighbors(current_node)) {
+        const uint32_t valid = 1 - ant.is_visited(node);
+        cand_list[cand_list_size] = node;
+        candidates_pheromone[cand_list_size] = pheromone.get(current_node,
+                                                             node);
+        cand_list_size += valid;
     }
 
     uint32_t chosen_node = current_node;
